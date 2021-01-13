@@ -1,5 +1,5 @@
 const
-	module_name = 'module.rdf.MongoDBStore',
+	module_name = 'module.persistence.mongodb : MongoDBStore',
 	{ EventEmitter } = require('events'),
 	// { MongoClient } = require('mongodb'),
 	dataFactory = require('../../module.persistence/src/module.persistence.js'),
