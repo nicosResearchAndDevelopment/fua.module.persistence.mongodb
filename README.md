@@ -1,5 +1,7 @@
 # module.persistence.mongodb
 
+- [Persistence](../module.persistence)
+
 ## Interface
 
 ```ts
