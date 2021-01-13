@@ -13,7 +13,7 @@ const
 		}
 	};
 
-describe('module.persistence.mongodb : StoreFactoryInterface', function() {
+describe('module.persistence.mongodb : DataStoreFactoryInterface', function() {
 
 	// mongod --port 27017 --dbpath .\test\data\mongodb
 
