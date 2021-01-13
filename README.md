@@ -1,6 +1,6 @@
 # module.persistence.mongodb
 
-- [Persistence](../module.persistence)
+- [Persistence](https://git02.int.nsc.ag/Research/fua/lib/module.persistence)
 
 ## Interface
 
