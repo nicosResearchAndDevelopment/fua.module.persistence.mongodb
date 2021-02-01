@@ -1,126 +1,216 @@
 const
-	module_name = 'module.persistence.mongodb : MongoDBStore',
-	{ EventEmitter } = require('events'),
-	// { MongoClient } = require('mongodb'),
-	dataFactory = require('../../module.persistence/src/module.persistence.js'),
-	datasetFactory = require('../../module.persistence.inmemory/src/module.persistence.inmemory.js'),
-	{ isQuad, isNamedNode, isLiteral, isSubject, isPredicate, isObject } = dataFactory;
+    { EventEmitter } = require('events'),
+    { MongoClient } = require('mongodb'),
+    persistence = require('../../module.persistence/src/module.persistence.js'),
+    { isNamedNode, isBlankNode, isLiteral, isDefaultGraph, isQuad } = persistence,
+    { _assert } = require('./util.js');
 
-// TODO the amount of stored data can be reduced, if terms got stored separately
+// interface MongoDBStore extends DataStore {
+// [x] size(): Promise<number>;
+//
+// [x] match(subject?: Term, predicate?: Term, object?: Term, graph?: Term): Promise<Dataset>;
+//
+// [x] add(quads: Quad | Iterable<Quad>): Promise<number>;
+// [ ] addStream(stream: Readable<Quad>): Promise<number>;
+// [x] delete(quads: Quad | Iterable<Quad>): Promise<number>;
+// [ ] deleteStream(stream: Readable<Quad>): Promise<number>;
+// [x] deleteMatches(subject?: Term, predicate?: Term, object?: Term, graph?: Term): Promise<number>;
+//
+// [ ] has(quads: Quad | Iterable<Quad>): Promise<boolean>;
+//
+// [ ] on(event: "added", callback: (quad: Quad) => void): this;
+// [ ] on(event: "deleted", callback: (quad: Quad) => void): this;
+// [ ] on(event: "error", callback: (err: Error) => void): this;
+// };
 
 class MongoDBStore extends EventEmitter {
 
-	#graph = null;
-	#db = null;
+    #db = null;
 
-	constructor(graph, db) {
-		if (!isNamedNode(graph))
-			throw new Error(`${module_name}#constructor : invalid graph`);
-		if (!(db && typeof db.collection === 'function'))
-			throw new Error(`${module_name}#constructor : invalid db`);
+    constructor({ url, db, config }) {
+        super();
+        this.#db = new Promise((resolve, reject) => {
+            MongoClient.connect(url, config, (err, client) => {
+                if (err) reject(err);
+                else {
+                    this.#db = client.db(db);
+                    resolve(this.#db);
+                }
+            });
+        });
+    } // MongoDBStore#constructor
 
-		super();
-		this.#graph = graph;
-		this.#db = db;
-	}
+    /**
+     * @returns {Promise<number>}
+     */
+    async size() {
+        const
+            db = await this.#db,
+            coll = db.collection('quads'),
+            count = await coll.estimatedDocumentCount();
+        return count;
+    } // MongoDBStore#size
 
-	/**
-	 * @returns {Promise<Number>} the number of quads
-	 */
-	async size() {
-		const
-			col = this.#db.collection('tripel'),
-			count = await col.estimatedDocumentCount();
+    /**
+     * @param {Term} [subject]
+     * @param {Term} [predicate]
+     * @param {Term} [object]
+     * @param {Term} [graph]
+     * @returns {Promise<Dataset>}
+     */
+    async match(subject, predicate, object, graph) {
+        const findQuery = {};
+        if (subject) {
+            _assert(validSubject(subject), 'MongoDBStore#match : invalid subject', TypeError);
+            findQuery['subject'] = subject;
+        }
+        if (predicate) {
+            _assert(validPredicate(predicate), 'MongoDBStore#match : invalid predicate', TypeError);
+            findQuery['predicate'] = predicate;
+        }
+        if (object) {
+            _assert(validObject(object), 'MongoDBStore#match : invalid object', TypeError);
+            findQuery['object'] = object;
+        }
+        if (graph) {
+            _assert(validGraph(graph), 'MongoDBStore#match : invalid graph', TypeError);
+            findQuery['graph'] = graph;
+        }
 
-		return count;
-	} // Neo4jStore#size
+        const
+            db = await this.#db,
+            coll = db.collection('quads'),
+            projection = { '_id': 0, 'subject': 1, 'predicate': 1, 'object': 1, 'graph': 1 },
+            findCursor = await coll.find(findQuery, projection),
+            dataset = persistence.dataset();
 
-	/**
-	 * @param {Quad} quad
-	 * @returns {Promise<Boolean>} true, if an actual quad got added
-	 */
-	async add(quad) {
-		if (!isQuad(quad))
-			throw new Error(`${module_name}#add : invalid quad`);
+        await findCursor.forEach((quadDoc) => {
+            dataset.add(persistence.fromQuad(quadDoc));
+        });
 
-		const
-			col = this.#db.collection('tripel'),
-			query = { subject: quad.subject, predicate: quad.predicate, object: quad.object },
-			{ upsertedCount } = await col.updateOne(query, { $setOnInsert: query }, { upsert: true });
+        return dataset;
+    } // MongoDBStore#match
 
-		return upsertedCount > 0;
-	} // Neo4jStore#add
+    /**
+     *
+     * @param {Quad|Iterable<Quad>} quads
+     * @returns {Promise<number>}
+     */
+    async add(quads) {
+        /** @type {Array<Quad>} */
+        const quadArr = isQuad(quads) ? [quads] : Array.isArray(quads) ? quads : Array.from(quads);
+        _assert(quadArr.every(validQuad), 'MongoDBStore#add : invalid quads');
 
-	/**
-	 * @param {Quad} quad
-	 * @returns {Promise<Boolean>} true, if an actual quad got deleted
-	 */
-	async delete(quad) {
-		if (!isQuad(quad))
-			throw new Error(`${module_name}#delete : invalid quad`);
+        const
+            db = await this.#db,
+            coll = db.collection('quads'),
+            bulkQuery = quadArr.map((quad) => ({
+                'updateOne': {
+                    'filter': quad,
+                    'update': quad,
+                    'upsert': true
+                }
+            })),
+            { upsertedCount } = await coll.bulkWrite(bulkQuery);
 
-		const
-			col = this.#db.collection('tripel'),
-			query = { subject: quad.subject, predicate: quad.predicate, object: quad.object },
-			{ deletedCount } = await col.deleteOne(query);
+        return upsertedCount;
+    } // MongoDBStore#add
 
-		return deletedCount > 0;
-	} // Neo4jStore#delete
+    /**
+     *
+     * @param {Quad|Iterable<Quad>} quads
+     * @returns {Promise<number>}
+     */
+    async delete(quads) {
+        /** @type {Array<Quad>} */
+        const quadArr = isQuad(quads) ? [quads] : Array.isArray(quads) ? quads : Array.from(quads);
+        _assert(quadArr.every(validQuad), 'MongoDBStore#delete : invalid quads');
 
-	/**
-	 * @param {Quad} quad
-	 * @returns {Promise<Boolean>} true, if the store contains the quad
-	 */
-	async has(quad) {
-		if (!isQuad(quad))
-			throw new Error(`${module_name}#has : invalid quad`);
+        const
+            db = await this.#db,
+            coll = db.collection('quads'),
+            bulkQuery = quadArr.map((quad) => ({
+                'deleteOne': {
+                    'filter': quad
+                }
+            })),
+            { deletedCount } = await coll.bulkWrite(bulkQuery);
 
-		const
-			col = this.#db.collection('tripel'),
-			query = { subject: quad.subject, predicate: quad.predicate, object: quad.object },
-			existedCount = await col.countDocuments(query, { limit: 1 });
+        return deletedCount;
+    } // MongoDBStore#delete
 
-		return existedCount > 0;
-	} // Neo4jStore#has
+    /**
+     * @param {Term} [subject]
+     * @param {Term} [predicate]
+     * @param {Term} [object]
+     * @param {Term} [graph]
+     * @returns {Promise<number>}
+     */
+    async deleteMatches(subject, predicate, object, graph) {
+        const findQuery = {};
+        if (subject) {
+            _assert(validSubject(subject), 'MongoDBStore#deleteMatches : invalid subject', TypeError);
+            findQuery['subject'] = subject;
+        }
+        if (predicate) {
+            _assert(validPredicate(predicate), 'MongoDBStore#deleteMatches : invalid predicate', TypeError);
+            findQuery['predicate'] = predicate;
+        }
+        if (object) {
+            _assert(validObject(object), 'MongoDBStore#deleteMatches : invalid object', TypeError);
+            findQuery['object'] = object;
+        }
+        if (graph) {
+            _assert(validGraph(graph), 'MongoDBStore#deleteMatches : invalid graph', TypeError);
+            findQuery['graph'] = graph;
+        }
 
-	/**
-	 * @param {Term} [subject]
-	 * @param {Term} [predicate]
-	 * @param {Term} [object]
-	 * @returns {Promise<Dataset>} new dataset with matching quads
-	 */
-	async match(subject, predicate, object) {
-		const query = {};
+        const
+            db = await this.#db,
+            coll = db.collection('quads'),
+            projection = { '_id': 1 },
+            findCursor = await coll.find(findQuery, projection),
+            bulkQuery = [];
 
-		if (subject) {
-			if (!isSubject(subject))
-				throw new Error(`${module_name}#match : invalid subject`);
-			query.subject = subject;
-		}
-		if (predicate) {
-			if (!isPredicate(predicate))
-				throw new Error(`${module_name}#match : invalid predicate`);
-			query.predicate = predicate;
-		}
-		if (object) {
-			if (object && !isObject(object))
-				throw new Error(`${module_name}#match : invalid object`);
-			query.object = object;
-		}
+        await findCursor.forEach((quadDoc) => {
+            bulkQuery.push({
+                'deleteOne': {
+                    'filter': quadDoc
+                }
+            });
+        });
 
-		const
-			col = this.#db.collection('tripel'),
-			findCursor = await col.find(query, { projection: { subject: 1, predicate: 1, object: 1 } }),
-			dataset = datasetFactory.dataset();
-
-		await findCursor.forEach((quadDoc) => {
-			quadDoc.graph = this.#graph;
-			dataset.add(dataFactory.fromQuad(quadDoc));
-		});
-
-		return dataset;
-	} // Neo4jStore#match
+        const { deletedCount } = await coll.bulkWrite(bulkQuery);
+        return deletedCount;
+    } // MongoDBStore#deleteMatches
 
 } // MongoDBStore
 
-module.exports = MongoDBStore;
+function validSubject(term) {
+    return isNamedNode(term) || isBlankNode(term);
+} // validSubject
+
+function validPredicate(term) {
+    return isNamedNode(term);
+} // validPredicate
+
+function validObject(term) {
+    return isNamedNode(term) || isLiteral(term) || isBlankNode(term);
+} // validObject
+
+function validGraph(term) {
+    return isDefaultGraph(term) || isNamedNode(term);
+} // validGraph
+
+function validQuad(term) {
+    return isQuad(term)
+        && validSubject(term.subject)
+        && validPredicate(term.predicate)
+        && validObject(term.object)
+        && validGraph(term.graph);
+} // validQuad
+
+module.exports = {
+    MongoDBStore,
+    validSubject, validPredicate, validObject, validGraph, validQuad
+}; // exports

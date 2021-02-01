@@ -1,7 +1,7 @@
 const
-	// dataFactory = require('../../module.persistence/src/module.persistence.js'),
-	// datasetFactory = require('../../module.persistence.inmemory/src/module.persistence.inmemory.js'),
-	MongoDBStore = require('./MongoDBStore.js');
+    // dataFactory = require('../../module.persistence/src/module.persistence.js'),
+    // datasetFactory = require('../../module.persistence.inmemory/src/module.persistence.inmemory.js'),
+    MongoDBStore = require('./MongoDBStore_beta.js');
 
 /**
  * @param {NamedNode} graph
@@ -9,5 +9,5 @@ const
  * @returns {MongoDBStore}
  */
 exports.store = function(graph, db) {
-	return new MongoDBStore(graph, db);
+    return new MongoDBStore(graph, db);
 };
