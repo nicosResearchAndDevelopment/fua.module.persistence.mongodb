@@ -3,25 +3,14 @@ const
     { MongoClient } = require('mongodb'),
     persistence = require('../../module.persistence/src/module.persistence.js'),
     { isNamedNode, isBlankNode, isLiteral, isDefaultGraph, isQuad } = persistence,
-    { _assert } = require('./util.js');
-
-// interface MongoDBStore extends DataStore {
-// [x] size(): Promise<number>;
-//
-// [x] match(subject?: Term, predicate?: Term, object?: Term, graph?: Term): Promise<Dataset>;
-//
-// [x] add(quads: Quad | Iterable<Quad>): Promise<number>;
-// [ ] addStream(stream: Readable<Quad>): Promise<number>;
-// [x] delete(quads: Quad | Iterable<Quad>): Promise<number>;
-// [ ] deleteStream(stream: Readable<Quad>): Promise<number>;
-// [x] deleteMatches(subject?: Term, predicate?: Term, object?: Term, graph?: Term): Promise<number>;
-//
-// [ ] has(quads: Quad | Iterable<Quad>): Promise<boolean>;
-//
-// [ ] on(event: "added", callback: (quad: Quad) => void): this;
-// [ ] on(event: "deleted", callback: (quad: Quad) => void): this;
-// [ ] on(event: "error", callback: (err: Error) => void): this;
-// };
+    { _assert } = require('./util.js'),
+    _quadToDoc = (quad) => ({
+        subject: quad.subject,
+        predicate: quad.predicate,
+        object: quad.object,
+        graph: quad.graph
+    }),
+    _docToQuad = (quadDoc) => persistence.fromQuad(quadDoc);
 
 class MongoDBStore extends EventEmitter {
 
@@ -44,11 +33,16 @@ class MongoDBStore extends EventEmitter {
      * @returns {Promise<number>}
      */
     async size() {
-        const
-            db = await this.#db,
-            coll = db.collection('quads'),
-            count = await coll.estimatedDocumentCount();
-        return count;
+        try {
+            const
+                db = await this.#db,
+                coll = db.collection('quads'),
+                count = await coll.estimatedDocumentCount();
+            return count;
+        } catch (err) {
+            this.emit('error', err);
+            throw err;
+        }
     } // MongoDBStore#size
 
     /**
@@ -62,82 +56,134 @@ class MongoDBStore extends EventEmitter {
         const findQuery = {};
         if (subject) {
             _assert(validSubject(subject), 'MongoDBStore#match : invalid subject', TypeError);
-            findQuery['subject'] = subject;
+            findQuery.subject = subject;
         }
         if (predicate) {
             _assert(validPredicate(predicate), 'MongoDBStore#match : invalid predicate', TypeError);
-            findQuery['predicate'] = predicate;
+            findQuery.predicate = predicate;
         }
         if (object) {
             _assert(validObject(object), 'MongoDBStore#match : invalid object', TypeError);
-            findQuery['object'] = object;
+            findQuery.object = object;
         }
         if (graph) {
             _assert(validGraph(graph), 'MongoDBStore#match : invalid graph', TypeError);
-            findQuery['graph'] = graph;
+            findQuery.graph = graph;
         }
 
-        const
-            db = await this.#db,
-            coll = db.collection('quads'),
-            projection = { '_id': 0, 'subject': 1, 'predicate': 1, 'object': 1, 'graph': 1 },
-            findCursor = await coll.find(findQuery, projection),
-            dataset = persistence.dataset();
+        try {
+            const
+                db = await this.#db,
+                coll = db.collection('quads'),
+                projection = { _id: false, subject: true, predicate: true, object: true, graph: true },
+                findCursor = await coll.find(findQuery, projection),
+                dataset = persistence.dataset();
 
-        await findCursor.forEach((quadDoc) => {
-            dataset.add(persistence.fromQuad(quadDoc));
-        });
+            await findCursor.forEach((quadDoc) => {
+                dataset.add(persistence.fromQuad(quadDoc));
+            });
 
-        return dataset;
+            return dataset;
+        } catch (err) {
+            this.emit('error', err);
+            throw err;
+        }
     } // MongoDBStore#match
 
     /**
-     *
      * @param {Quad|Iterable<Quad>} quads
      * @returns {Promise<number>}
      */
     async add(quads) {
         /** @type {Array<Quad>} */
         const quadArr = isQuad(quads) ? [quads] : Array.isArray(quads) ? quads : Array.from(quads);
-        _assert(quadArr.every(validQuad), 'MongoDBStore#add : invalid quads');
+        _assert(quadArr.every(validQuad), 'MongoDBStore#add : invalid quads', TypeError);
 
-        const
-            db = await this.#db,
-            coll = db.collection('quads'),
-            bulkQuery = quadArr.map((quad) => ({
-                'updateOne': {
-                    'filter': quad,
-                    'update': quad,
-                    'upsert': true
-                }
-            })),
-            { upsertedCount } = await coll.bulkWrite(bulkQuery);
+        try {
+            const
+                db = await this.#db,
+                coll = db.collection('quads'),
+                bulkQuery = quadArr.map((quad) => {
+                    const quadDoc = _quadToDoc(quad);
+                    return {
+                        updateOne: {
+                            filter: quadDoc,
+                            update: { $setOnInsert: quadDoc },
+                            upsert: true
+                        }
+                    };
+                }),
+                { result } = await coll.bulkWrite(bulkQuery);
 
-        return upsertedCount;
+            for (let { index } of result.upserted) {
+                this.emit('added', quadArr[index]);
+            }
+
+            return result.nUpserted;
+        } catch (err) {
+            this.emit('error', err);
+            throw err;
+        }
     } // MongoDBStore#add
 
     /**
-     *
+     * @param {Readable<Quad>} stream
+     * @returns {Promise<number>}
+     */
+    async addStream(stream) {
+        const quads = [];
+        await new Promise((resolve) => {
+            stream.on('data', quad => quads.push(quad));
+            stream.on('end', resolve);
+        });
+        return this.add(quads);
+    } // MongoDBStore#addStream
+
+    /**
      * @param {Quad|Iterable<Quad>} quads
      * @returns {Promise<number>}
      */
     async delete(quads) {
         /** @type {Array<Quad>} */
         const quadArr = isQuad(quads) ? [quads] : Array.isArray(quads) ? quads : Array.from(quads);
-        _assert(quadArr.every(validQuad), 'MongoDBStore#delete : invalid quads');
+        _assert(quadArr.every(validQuad), 'MongoDBStore#delete : invalid quads', TypeError);
 
-        const
-            db = await this.#db,
-            coll = db.collection('quads'),
-            bulkQuery = quadArr.map((quad) => ({
-                'deleteOne': {
-                    'filter': quad
+        try {
+            const
+                db = await this.#db,
+                coll = db.collection('quads'),
+                // REM: bulkWrite would be more efficient, but you cannot get the deleted quads
+                resultArr = await Promise.all(quadArr.map(
+                    (quad) => coll.findOneAndDelete(_quadToDoc(quad))
+                ));
+
+            let deleted = 0;
+            resultArr.forEach((result, index) => {
+                if (result.value) {
+                    deleted++;
+                    this.emit('deleted', quadArr[index]);
                 }
-            })),
-            { deletedCount } = await coll.bulkWrite(bulkQuery);
+            });
 
-        return deletedCount;
+            return deleted;
+        } catch (err) {
+            this.emit('error', err);
+            throw err;
+        }
     } // MongoDBStore#delete
+
+    /**
+     * @param {Readable<Quad>} stream
+     * @returns {Promise<number>}
+     */
+    async deleteStream(stream) {
+        const quads = [];
+        await new Promise((resolve) => {
+            stream.on('data', quad => quads.push(quad));
+            stream.on('end', resolve);
+        });
+        return this.delete(quads);
+    } // MongoDBStore#deleteStream
 
     /**
      * @param {Term} [subject]
@@ -150,39 +196,73 @@ class MongoDBStore extends EventEmitter {
         const findQuery = {};
         if (subject) {
             _assert(validSubject(subject), 'MongoDBStore#deleteMatches : invalid subject', TypeError);
-            findQuery['subject'] = subject;
+            findQuery.subject = subject;
         }
         if (predicate) {
             _assert(validPredicate(predicate), 'MongoDBStore#deleteMatches : invalid predicate', TypeError);
-            findQuery['predicate'] = predicate;
+            findQuery.predicate = predicate;
         }
         if (object) {
             _assert(validObject(object), 'MongoDBStore#deleteMatches : invalid object', TypeError);
-            findQuery['object'] = object;
+            findQuery.object = object;
         }
         if (graph) {
             _assert(validGraph(graph), 'MongoDBStore#deleteMatches : invalid graph', TypeError);
-            findQuery['graph'] = graph;
+            findQuery.graph = graph;
         }
 
-        const
-            db = await this.#db,
-            coll = db.collection('quads'),
-            projection = { '_id': 1 },
-            findCursor = await coll.find(findQuery, projection),
-            bulkQuery = [];
+        try {
+            const
+                db = await this.#db,
+                coll = db.collection('quads'),
+                projection = { _id: true, subject: true, predicate: true, object: true, graph: true },
+                findCursor = await coll.find(findQuery, projection),
+                bulkQuery = [], quads = [];
 
-        await findCursor.forEach((quadDoc) => {
-            bulkQuery.push({
-                'deleteOne': {
-                    'filter': quadDoc
-                }
+            await findCursor.forEach((quadDoc) => {
+                quads.push(_docToQuad(quadDoc));
+                bulkQuery.push({
+                    deleteOne: {
+                        filter: { _id: quadDoc._id }
+                    }
+                });
             });
-        });
 
-        const { deletedCount } = await coll.bulkWrite(bulkQuery);
-        return deletedCount;
+            const { result } = await coll.bulkWrite(bulkQuery);
+            for (let quad of quads) {
+                this.emit('deleted', quad);
+            }
+
+            return result.nRemoved;
+        } catch (err) {
+            this.emit('error', err);
+            throw err;
+        }
     } // MongoDBStore#deleteMatches
+
+    /**
+     * @param {Quad|Iterable<Quad>} quads
+     * @returns {Promise<boolean>}
+     */
+    async has(quads) {
+        /** @type {Array<Quad>} */
+        const quadArr = isQuad(quads) ? [quads] : Array.isArray(quads) ? quads : Array.from(quads);
+        _assert(quadArr.every(validQuad), 'MongoDBStore#has : invalid quads', TypeError);
+
+        try {
+            const
+                db = await this.#db,
+                coll = db.collection('quads'),
+                counts = await Promise.all(quadArr.map(
+                    (quad) => coll.countDocuments(_quadToDoc(quad), { limit: 1 })
+                ));
+
+            return counts.every(val => val > 0);
+        } catch (err) {
+            this.emit('error', err);
+            throw err;
+        }
+    } // MongoDBStore#has
 
 } // MongoDBStore
 

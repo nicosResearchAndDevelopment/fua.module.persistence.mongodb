@@ -1,13 +1,43 @@
 const
-    // dataFactory = require('../../module.persistence/src/module.persistence.js'),
-    // datasetFactory = require('../../module.persistence.inmemory/src/module.persistence.inmemory.js'),
-    MongoDBStore = require('./MongoDBStore_beta.js');
+    { MongoClient } = require('mongodb'),
+    {
+        validSubject, validPredicate, validObject, validGraph, validQuad
+    } = require('./MongoDBStore.js'),
+    {
+        dataStore, isDataStore
+    } = require('./MongoDBStoreFactory.js');
 
-/**
- * @param {NamedNode} graph
- * @para {MongoDBDatabase} db
- * @returns {MongoDBStore}
- */
-exports.store = function(graph, db) {
-    return new MongoDBStore(graph, db);
-};
+async function createQuadIndex(options) {
+    const
+        client = await MongoClient.connect(options.url, options.config),
+        db = client.db(options.db),
+        coll = db.collection('quads');
+
+    await Promise.all([
+        coll.createIndex(
+            { 'subject': 1 },
+            { 'name': 'SubjectIndex' }
+        ),
+        coll.createIndex(
+            { 'predicate': 1 },
+            { 'name': 'PredicateIndex' }
+        ),
+        coll.createIndex(
+            { 'object': 1 },
+            { 'name': 'ObjectIndex' }
+        ),
+        coll.createIndex(
+            { 'graph': 1 },
+            { 'name': 'GraphIndex' }
+        ),
+        coll.createIndex(
+            { 'subject': 1, 'predicate': 1, 'object': 1, 'graph': 1 },
+            { 'name': 'QuadIndex', 'unique': true }
+        )
+    ]);
+} // createQuadIndex
+
+module.exports = {
+    dataStore, isDataStore,
+    validSubject, validPredicate, validObject, validGraph, validQuad
+}; // exports
