@@ -7,7 +7,7 @@ const
         dataStore, isDataStore
     } = require('./MongoDBStoreFactory.js');
 
-async function createQuadIndex(options) {
+async function buildIndex(options) {
     const
         client = await MongoClient.connect(options.url, options.config),
         db = client.db(options.db),
@@ -35,9 +35,10 @@ async function createQuadIndex(options) {
             { 'name': 'QuadIndex', 'unique': true }
         )
     ]);
-} // createQuadIndex
+} // buildIndex
 
 module.exports = {
     dataStore, isDataStore,
-    validSubject, validPredicate, validObject, validGraph, validQuad
+    validSubject, validPredicate, validObject, validGraph, validQuad,
+    buildIndex
 }; // exports

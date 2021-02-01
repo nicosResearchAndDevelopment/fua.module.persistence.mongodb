@@ -38,5 +38,7 @@ interface MongoDBStoreFactory extends DataStoreFactory {
     validObject(that: Term | any): true | false;
     validGraph(that: Term | any): true | false;
     validQuad(that: Quad | any): true | false;
+
+    buildIndex({ url: string, db: string, config: Object }): Promise<void>;
 };
 ```

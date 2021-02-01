@@ -1,16 +1,19 @@
 const
     persistence = require('../../module.persistence/src/module.persistence.js'),
-    { MongoDBStore } = require('../src/MongoDBStore.js');
+    { dataStore, createQuadIndex } = require('../src/module.persistence.mongodb.js');
 
 (async () => {
 
-    const store = new MongoDBStore({
+    const options = {
         url: 'mongodb://localhost:27017/',
         db: 'MongoDBStore',
         config: {
             useUnifiedTopology: true
         }
-    });
+    };
+
+    await createQuadIndex(options);
+    const store = dataStore(options);
 
     store.on('error', (err) => console.error(err));
     store.on('added', (quad) => console.log('event.added:', quad));
@@ -40,5 +43,6 @@ const
     console.log('store.delete:', await store.delete(quads));
 
     debugger;
+    process.exit(0);
 
 })().catch(console.error);
