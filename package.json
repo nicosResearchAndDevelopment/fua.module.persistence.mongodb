@@ -1,10 +1,11 @@
 {
-  "name": "fua.module.persistence.mongodb",
+  "name": "@nrd/fua.module.persistence.mongodb",
   "version": "1.0.0",
   "description": "",
   "main": "src/module.persistence.mongodb.js",
   "dependencies": {
-    "mongodb": "^3.6.3"
+    "mongodb": "^3.6.3",
+    "@nrd/fua.module.persistence": "1.0.0"
   },
   "devDependencies": {
     "mocha": "^8.2.1",

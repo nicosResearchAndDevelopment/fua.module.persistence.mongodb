@@ -1,7 +1,7 @@
 const
     {describe, test, before, after} = require('mocha'),
     expect                          = require('expect'),
-    MongoDBStore                    = require('./module.persistence.mongodb.js'),
+    MongoDBStore                    = require('../src/module.persistence.mongodb.js'),
     options                         = {
         url:    'mongodb://localhost:27017/',
         db:     'MongoDBStore',
