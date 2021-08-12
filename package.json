@@ -5,6 +5,7 @@
   "main": "src/module.persistence.mongodb.js",
   "dependencies": {
     "mongodb": "^3.6.3",
+    "@nrd/fua.core.util": "1.0.0",
     "@nrd/fua.module.persistence": "1.0.0"
   },
   "devDependencies": {

@@ -1,20 +1,8 @@
 const
-    _             = Object.create(null),
+    util          = require('@nrd/fua.core.util'),
+    assert        = new util.Assert('module.persistence.mongodb'),
     {MongoClient} = require('mongodb'),
-    {DataStore}   = require('@nrd/fua.module.persistence'),
-    MODULE_NAME   = 'module.persistence.mongodb';
-
-_.assert = function (value, errMsg = 'undefined error', errType = Error) {
-    if (!value) {
-        const err = new errType(`${MODULE_NAME} : ${errMsg}`);
-        Error.captureStackTrace(err, _.assert);
-        throw err;
-    }
-};
-
-_.isString = function (value) {
-    return typeof value === 'string';
-};
+    {DataStore}   = require('@nrd/fua.module.persistence');
 
 class MongoDBStore extends DataStore {
 
@@ -23,8 +11,8 @@ class MongoDBStore extends DataStore {
     constructor(options, factory) {
         super(options, factory);
         const {url, db, config} = options;
-        _.assert(_.isString(url), 'MongoDBStore#constructor : invalid url');
-        _.assert(_.isString(db), 'MongoDBStore#constructor : invalid url');
+        assert(util.isString(url), 'MongoDBStore#constructor : invalid url');
+        assert(util.isString(db), 'MongoDBStore#constructor : invalid url');
         this.#db = new Promise((resolve, reject) => {
             MongoClient.connect(url, config, (err, client) => {
                 if (err) reject(err);
