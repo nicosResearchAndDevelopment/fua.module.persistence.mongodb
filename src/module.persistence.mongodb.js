@@ -12,7 +12,7 @@ class MongoDBStore extends DataStore {
         super(options, factory);
         const {url, db, config} = options;
         assert(util.isString(url), 'MongoDBStore#constructor : invalid url');
-        assert(util.isString(db), 'MongoDBStore#constructor : invalid url');
+        assert(util.isString(db), 'MongoDBStore#constructor : invalid db');
         this.#db = new Promise((resolve, reject) => {
             MongoClient.connect(url, config, (err, client) => {
                 if (err) reject(err);
