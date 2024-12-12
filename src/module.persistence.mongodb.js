@@ -1,8 +1,8 @@
 const
-    util          = require('@nrd/fua.core.util'),
+    util          = require('@fua/core.util'),
     assert        = new util.Assert('module.persistence.mongodb'),
     {MongoClient} = require('mongodb'),
-    {DataStore}   = require('@nrd/fua.module.persistence');
+    {DataStore}   = require('@fua/module.persistence');
 
 class MongoDBStore extends DataStore {
 
