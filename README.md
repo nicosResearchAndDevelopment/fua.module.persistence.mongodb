@@ -1,7 +1,5 @@
 # module.persistence.mongodb
 
-- [Persistence](https://git02.int.nsc.ag/Research/fua/lib/module.persistence)
-
 ## Interface
 
 ### MongoDBStore
